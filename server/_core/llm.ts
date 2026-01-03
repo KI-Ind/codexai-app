@@ -210,30 +210,80 @@ const normalizeToolChoice = (
 };
 
 const resolveApiUrl = () => {
-  if (ENV.llmProvider === "openai") {
-    return `${ENV.openaiBaseUrl}/chat/completions`;
+  switch (ENV.llmProvider) {
+    case "openai":
+      return `${ENV.openaiBaseUrl}/chat/completions`;
+    
+    case "ollama":
+      return `${ENV.ollamaBaseUrl}/chat/completions`;
+    
+    case "custom":
+      if (!ENV.customLlmBaseUrl) {
+        throw new Error("CUSTOM_LLM_BASE_URL is required when using custom provider");
+      }
+      return `${ENV.customLlmBaseUrl}/chat/completions`;
+    
+    case "forge":
+    default:
+      if (ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0) {
+        return `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`;
+      }
+      return "https://forge.manus.im/v1/chat/completions";
   }
-  
-  // Forge provider
-  if (ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0) {
-    return `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`;
-  }
-  
-  return "https://forge.manus.im/v1/chat/completions";
 };
 
 const assertApiKey = () => {
-  if (ENV.llmProvider === "openai" && !ENV.openaiApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
-  }
-  
-  if (ENV.llmProvider === "forge" && !ENV.forgeApiKey) {
-    throw new Error("FORGE_API_KEY is not configured");
+  switch (ENV.llmProvider) {
+    case "openai":
+      if (!ENV.openaiApiKey) {
+        throw new Error("OPENAI_API_KEY is not configured");
+      }
+      break;
+    
+    case "ollama":
+      // Ollama typically doesn't require an API key for local instances
+      break;
+    
+    case "custom":
+      if (!ENV.customLlmApiKey) {
+        console.warn("CUSTOM_LLM_API_KEY is not configured. Proceeding without authentication.");
+      }
+      break;
+    
+    case "forge":
+      if (!ENV.forgeApiKey) {
+        throw new Error("FORGE_API_KEY is not configured");
+      }
+      break;
   }
 };
 
 const getApiKey = () => {
-  return ENV.llmProvider === "openai" ? ENV.openaiApiKey : ENV.forgeApiKey;
+  switch (ENV.llmProvider) {
+    case "openai":
+      return ENV.openaiApiKey;
+    case "ollama":
+      return ""; // Ollama doesn't require API key
+    case "custom":
+      return ENV.customLlmApiKey || "";
+    case "forge":
+    default:
+      return ENV.forgeApiKey;
+  }
+};
+
+const getModel = () => {
+  switch (ENV.llmProvider) {
+    case "openai":
+      return ENV.openaiModel;
+    case "ollama":
+      return ENV.ollamaModel;
+    case "custom":
+      return ENV.customLlmModel;
+    case "forge":
+    default:
+      return "gemini-2.5-flash";
+  }
 };
 
 const normalizeResponseFormat = ({
@@ -296,8 +346,8 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
-    messages: messages.map(normalizeMessage),
+    model: model ?? getModel(),
+    messages: normalizedMessages,
   };
 
   if (tools && tools.length > 0) {
@@ -314,11 +364,18 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   payload.max_tokens = params.maxTokens || params.max_tokens || 4096;
   
-  // Only add thinking for Forge provider
+  // Only add thinking for Forge provider (Gemini models)
   if (ENV.llmProvider === "forge") {
     payload.thinking = {
       "budget_tokens": 128
     };
+  }
+  
+  // Ollama and some custom providers may need temperature adjustment
+  if (ENV.llmProvider === "ollama" || ENV.llmProvider === "custom") {
+    if (!payload.temperature) {
+      payload.temperature = 0.7;
+    }
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({

@@ -14,15 +14,45 @@ import OpenAI from "openai";
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   try {
-    // Use OpenAI embeddings if configured
-    if (ENV.openaiApiKey) {
+    // Determine which embedding provider to use based on LLM provider
+    const provider = ENV.llmProvider;
+    
+    if (provider === "openai" && ENV.openaiApiKey) {
       const openai = new OpenAI({
         apiKey: ENV.openaiApiKey,
         baseURL: ENV.openaiBaseUrl,
       });
       
       const response = await openai.embeddings.create({
-        model: "text-embedding-3-small",
+        model: ENV.openaiEmbeddingModel,
+        input: text,
+      });
+      
+      return response.data[0].embedding;
+    }
+    
+    if (provider === "ollama") {
+      const openai = new OpenAI({
+        apiKey: "ollama", // Ollama doesn't require real API key
+        baseURL: ENV.ollamaBaseUrl,
+      });
+      
+      const response = await openai.embeddings.create({
+        model: ENV.ollamaEmbeddingModel,
+        input: text,
+      });
+      
+      return response.data[0].embedding;
+    }
+    
+    if (provider === "custom" && ENV.customLlmBaseUrl) {
+      const openai = new OpenAI({
+        apiKey: ENV.customLlmApiKey || "custom",
+        baseURL: ENV.customLlmBaseUrl,
+      });
+      
+      const response = await openai.embeddings.create({
+        model: ENV.customLlmEmbeddingModel,
         input: text,
       });
       
@@ -30,7 +60,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     }
     
     // Fallback to simulated embeddings
-    console.warn("[RAG] Using simulated embeddings. Configure OPENAI_API_KEY for real embeddings.");
+    console.warn(`[RAG] Using simulated embeddings. Configure ${provider.toUpperCase()} embedding settings for real embeddings.`);
     
     const hash = hashString(text);
     const embedding: number[] = [];

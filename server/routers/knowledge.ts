@@ -15,9 +15,14 @@ export const knowledgeRouter = router({
    */
   search: publicProcedure
     .input(z.object({
-      query: z.string().min(1).max(1000),
+      query: z.string().min(1).max(500),
       sourceType: z.enum(["all", "legifrance", "judilibre"]).default("all"),
       limit: z.number().min(1).max(20).default(5),
+      // Additional filters
+      jurisdiction: z.string().optional(), // e.g., "civil", "penal", "administratif"
+      dateFrom: z.string().optional(), // ISO date string
+      dateTo: z.string().optional(), // ISO date string
+      subject: z.string().optional(), // Legal subject/matter
     }))
     .query(async ({ ctx, input }) => {
       try {

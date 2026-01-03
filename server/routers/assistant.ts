@@ -26,6 +26,31 @@ Tes responsabilités :
 
 Important : Tu ne dois jamais inventer de sources ou de citations. Si tu n'es pas certain, dis-le clairement.`;
 
+/**
+ * Extract legal citations from assistant response
+ * Looks for patterns like "Article 1134", "Cass. civ. 1, 10 juillet 2007", etc.
+ */
+function extractCitations(text: string): string[] {
+  const citations: string[] = [];
+  
+  // Pattern for Code articles (e.g., "Article 1134 du Code Civil")
+  const articlePattern = /Article\s+\d+[\w\-]*(?:\s+(?:du|de la|des)\s+Code\s+[\w\s]+)?/gi;
+  const articles = text.match(articlePattern) || [];
+  citations.push(...articles);
+  
+  // Pattern for case law (e.g., "Cass. civ. 1, 10 juillet 2007, n° 06-14.768")
+  const casePattern = /(?:Cass\.|Cour de cassation)[^,]+,\s*\d{1,2}\s+\w+\s+\d{4}(?:,\s*n°\s*[\d\-\.]+)?/gi;
+  const cases = text.match(casePattern) || [];
+  citations.push(...cases);
+  
+  // Pattern for law references (e.g., "Loi n° 2016-1547")
+  const lawPattern = /Loi\s+n°\s*[\d\-]+/gi;
+  const laws = text.match(lawPattern) || [];
+  citations.push(...laws);
+  
+  return Array.from(new Set(citations)); // Remove duplicates
+}
+
 export const assistantRouter = router({
   /**
    * Créer une nouvelle conversation
@@ -127,12 +152,15 @@ export const assistantRouter = router({
           ? messageContent 
           : "Erreur lors de la génération de la réponse.";
         
+        // Extract citations from the response
+        const citations = extractCitations(assistantContent);
+        
         // Créer le message assistant
         const assistantMessage = await createAssistantMessage({
           conversationId: input.conversationId,
           role: "assistant",
           content: assistantContent || "Erreur lors de la génération de la réponse.",
-          citations: JSON.stringify([]), // TODO: Extraire les citations du contenu
+          citations: JSON.stringify(citations),
         });
         
         // Log audit
