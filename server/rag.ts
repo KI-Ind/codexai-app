@@ -5,20 +5,33 @@
 
 import { invokeLLM } from "./_core/llm";
 import { createRagChunk, RagChunk } from "./db";
+import { ENV } from "./_core/env";
+import OpenAI from "openai";
 
 /**
  * Génère un embedding pour un texte donné
- * Utilise l'API LLM pour créer des embeddings vectoriels
+ * Utilise OpenAI Embeddings API
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   try {
-    // Note: Les embeddings via LLM API ne sont pas directement supportés.
-    // En production, utiliser un service d'embedding dédié (ex: OpenAI Embeddings, Mistral Embed)
-    // Pour le MVP, on simule un embedding simple basé sur le hash du texte
+    // Use OpenAI embeddings if configured
+    if (ENV.openaiApiKey) {
+      const openai = new OpenAI({
+        apiKey: ENV.openaiApiKey,
+        baseURL: ENV.openaiBaseUrl,
+      });
+      
+      const response = await openai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: text,
+      });
+      
+      return response.data[0].embedding;
+    }
     
-    console.warn("[RAG] Using simulated embeddings. In production, use a dedicated embedding service.");
+    // Fallback to simulated embeddings
+    console.warn("[RAG] Using simulated embeddings. Configure OPENAI_API_KEY for real embeddings.");
     
-    // Simulation : créer un vecteur de 1536 dimensions (taille standard)
     const hash = hashString(text);
     const embedding: number[] = [];
     for (let i = 0; i < 1536; i++) {

@@ -5,7 +5,8 @@
 
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-import { logAuditEvent } from "../db";
+import { logAuditEvent, getRagChunksBySourceType } from "../db";
+import { searchRagChunks, generateRagContext } from "../rag";
 
 export const knowledgeRouter = router({
   /**
@@ -20,14 +21,6 @@ export const knowledgeRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       try {
-        // TODO: Implémenter la recherche RAG sur les données publiques
-        // 1. Générer l'embedding de la requête
-        // 2. Interroger les chunks RAG publics (Légifrance, Judilibre)
-        // 3. Re-ranker les résultats
-        // 4. Formater les citations
-        
-        console.warn("[Knowledge] Public RAG search not yet fully implemented");
-        
         // Log la requête pour l'audit
         if (ctx.user) {
           await logAuditEvent({
@@ -40,10 +33,41 @@ export const knowledgeRouter = router({
           });
         }
         
-        // Placeholder: retourner des résultats vides
+        // Get RAG chunks based on source type
+        const chunks = await getRagChunksBySourceType(
+          input.sourceType === "all" ? undefined : input.sourceType
+        );
+        
+        if (chunks.length === 0) {
+          return {
+            results: [],
+            totalCount: 0,
+            query: input.query,
+            message: "No documents indexed yet. Please ingest legal documents first.",
+          };
+        }
+        
+        // Search using RAG
+        const searchResults = await searchRagChunks(
+          input.query,
+          chunks,
+          input.limit,
+          0.3 // Lower threshold for more results
+        );
+        
+        // Format results
+        const results = searchResults.map(result => ({
+          id: result.chunk.id,
+          text: result.chunk.chunkText,
+          citation: result.citation,
+          similarity: result.similarity,
+          sourceType: result.chunk.sourceType,
+          metadata: JSON.parse(result.chunk.metadata),
+        }));
+        
         return {
-          results: [],
-          totalCount: 0,
+          results,
+          totalCount: results.length,
           query: input.query,
         };
       } catch (error) {

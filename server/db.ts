@@ -130,6 +130,22 @@ export async function searchRagChunksByEmbedding(
   return [];
 }
 
+export async function getRagChunksBySourceType(
+  sourceType?: "legifrance" | "judilibre"
+): Promise<RagChunk[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  if (sourceType) {
+    return await db.select().from(ragChunks).where(eq(ragChunks.sourceType, sourceType));
+  }
+  
+  // Return all public chunks (not vault)
+  return await db.select().from(ragChunks).where(
+    eq(ragChunks.sourceType, "legifrance")
+  );
+}
+
 /**
  * Vault Helpers
  */
@@ -147,6 +163,13 @@ export async function getVaultDocumentsByUserId(userId: number): Promise<VaultDo
   if (!db) throw new Error("Database not available");
   
   return await db.select().from(vaultDocuments).where(eq(vaultDocuments.userId, userId));
+}
+
+export async function deleteVaultDocument(documentId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  await db.delete(vaultDocuments).where(eq(vaultDocuments.id, documentId));
 }
 
 /**

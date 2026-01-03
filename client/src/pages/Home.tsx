@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Loader2, ArrowRight, Shield, BookOpen, Lock } from "lucide-react";
-import { getLoginUrl } from "@/const";
+// import { getLoginUrl } from "@/const";
 import { useEffect } from "react";
 
 export default function Home() {
@@ -40,9 +40,12 @@ export default function Home() {
             </div>
             <span className="font-bold text-lg text-gray-900">CodexAI</span>
           </div>
-          <a href={getLoginUrl()} className="text-sm font-medium text-blue-600 hover:text-blue-700">
+          <button
+            onClick={() => setLocation("/login")}
+            className="text-sm font-medium text-blue-600 hover:text-blue-700"
+          >
             Se connecter
-          </a>
+          </button>
         </div>
       </header>
 
@@ -59,13 +62,13 @@ export default function Home() {
             CodexAI combine l'intelligence artificielle et le droit français pour vous fournir des réponses
             précises, citées et conformes au RGPD.
           </p>
-          <a
-            href={getLoginUrl()}
+          <button
+            onClick={() => setLocation("/login")}
             className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-lg font-semibold hover:shadow-lg transition-shadow"
           >
             Commencer gratuitement
             <ArrowRight className="w-5 h-5" />
-          </a>
+          </button>
         </div>
 
         {/* Features Grid */}
@@ -146,13 +149,13 @@ export default function Home() {
         {/* CTA Section */}
         <div className="mt-20 text-center">
           <h2 className="text-3xl font-bold text-gray-900 mb-6">Prêt à commencer ?</h2>
-          <a
-            href={getLoginUrl()}
+          <button
+            onClick={() => setLocation("/login")}
             className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-lg font-semibold hover:shadow-lg transition-shadow"
           >
-            Se connecter avec Manus
+            Se connecter
             <ArrowRight className="w-5 h-5" />
-          </a>
+          </button>
         </div>
       </section>
 

@@ -8,20 +8,23 @@ import { protectedProcedure, router } from "../_core/trpc";
 import {
   createVaultDocument,
   getVaultDocumentsByUserId,
+  deleteVaultDocument,
   logAuditEvent,
 } from "../db";
-import { storagePut } from "../storage";
+import { storeFile, deleteFile, encryptData } from "../localStorage";
 import { notifyOwner } from "../_core/notification";
+import { ENV } from "../_core/env";
 
 export const vaultRouter = router({
   /**
-   * Générer une URL pré-signée pour l'upload de document
+   * Upload a document directly (base64 encoded)
    */
-  generateUploadUrl: protectedProcedure
+  uploadDocument: protectedProcedure
     .input(z.object({
       fileName: z.string().min(1).max(255),
-      fileSize: z.number().min(1).max(100 * 1024 * 1024),
+      fileData: z.string(), // base64 encoded
       mimeType: z.string().min(1).max(100),
+      encrypt: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
       try {
@@ -36,27 +39,52 @@ export const vaultRouter = router({
           throw new Error(`Type MIME non autorisé: ${input.mimeType}`);
         }
         
-        const timestamp = Date.now();
-        const randomSuffix = Math.random().toString(36).substring(2, 15);
-        const fileKey = `vault/${ctx.user.id}/${timestamp}-${randomSuffix}-${input.fileName}`;
+        // Decode base64
+        const fileBuffer = Buffer.from(input.fileData, "base64");
+        
+        // Check file size (max 100MB)
+        if (fileBuffer.length > 100 * 1024 * 1024) {
+          throw new Error("File size exceeds 100MB limit");
+        }
+        
+        // Encrypt if requested
+        const dataToStore = input.encrypt 
+          ? encryptData(fileBuffer, ENV.jwtSecret)
+          : fileBuffer;
+        
+        // Store file
+        const { key, url, size } = await storeFile(
+          ctx.user.id,
+          input.fileName,
+          dataToStore
+        );
+        
+        // Register in database
+        const document = await createVaultDocument({
+          userId: ctx.user.id,
+          fileName: input.fileName,
+          fileKey: key,
+          fileSize: size,
+          mimeType: input.mimeType,
+          s3Url: url,
+          isEncrypted: input.encrypt,
+        });
         
         await logAuditEvent({
           userId: ctx.user.id,
-          action: "vault_upload_initiated",
+          action: "vault_document_uploaded",
+          resourceId: document.id,
+          resourceType: "vault_document",
           details: JSON.stringify({
             fileName: input.fileName,
-            fileSize: input.fileSize,
-            mimeType: input.mimeType,
+            fileSize: size,
+            encrypted: input.encrypt,
           }),
         });
         
-        return {
-          fileKey,
-          uploadUrl: `https://s3.example.com/${fileKey}`,
-          expiresIn: 3600,
-        };
+        return document;
       } catch (error) {
-        console.error("[Vault] Failed to generate upload URL:", error);
+        console.error("[Vault] Failed to upload document:", error);
         throw error;
       }
     }),
@@ -128,6 +156,20 @@ export const vaultRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       try {
+        // Get document to verify ownership and get file key
+        const documents = await getVaultDocumentsByUserId(ctx.user.id);
+        const document = documents.find(d => d.id === input.documentId);
+        
+        if (!document) {
+          throw new Error("Document not found or access denied");
+        }
+        
+        // Delete file from storage
+        await deleteFile(document.fileKey);
+        
+        // Delete from database
+        await deleteVaultDocument(input.documentId);
+        
         await logAuditEvent({
           userId: ctx.user.id,
           action: "vault_document_deleted",
