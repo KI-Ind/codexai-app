@@ -7,6 +7,7 @@ import fs from "fs/promises";
 import path from "path";
 import { ENV } from "./_core/env";
 import crypto from "crypto";
+import { encryptAES256, decryptAES256, deriveKey, generateSalt } from "./encryption";
 
 const STORAGE_DIR = ENV.localStoragePath || "./storage";
 
@@ -105,24 +106,37 @@ export async function fileExists(fileKey: string): Promise<boolean> {
 }
 
 /**
- * Encrypt file data (simple XOR encryption for demo)
- * In production, use proper encryption like AES-256
+ * Encrypt file data using AES-256-GCM
+ * Returns: Salt (16 bytes) + IV + Auth Tag + Encrypted Data
  */
 export function encryptData(data: Buffer, key: string): Buffer {
-  const keyBuffer = Buffer.from(key, "utf-8");
-  const encrypted = Buffer.alloc(data.length);
+  // Generate salt and derive encryption key
+  const salt = generateSalt();
+  const encryptionKey = deriveKey(key, salt);
   
-  for (let i = 0; i < data.length; i++) {
-    encrypted[i] = data[i] ^ keyBuffer[i % keyBuffer.length];
-  }
+  // Encrypt using AES-256-GCM
+  const encrypted = encryptAES256(data, encryptionKey);
   
-  return encrypted;
+  // Prepend salt to encrypted data (needed for decryption)
+  const saltBuffer = Buffer.from(salt, "hex");
+  return Buffer.concat([saltBuffer, encrypted]);
 }
 
 /**
- * Decrypt file data (simple XOR decryption for demo)
+ * Decrypt file data using AES-256-GCM
+ * Expects: Salt (16 bytes) + IV + Auth Tag + Encrypted Data
  */
 export function decryptData(data: Buffer, key: string): Buffer {
-  // XOR encryption is symmetric
-  return encryptData(data, key);
+  // Extract salt (first 16 bytes as hex string = 32 bytes)
+  const saltBuffer = data.subarray(0, 32);
+  const salt = saltBuffer.toString();
+  
+  // Extract encrypted data (remaining bytes)
+  const encryptedData = data.subarray(32);
+  
+  // Derive encryption key from salt
+  const encryptionKey = deriveKey(key, salt);
+  
+  // Decrypt using AES-256-GCM
+  return decryptAES256(encryptedData, encryptionKey);
 }

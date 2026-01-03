@@ -40,4 +40,7 @@ export const ENV = {
   s3AccessKey: process.env.S3_ACCESS_KEY ?? "",
   s3SecretKey: process.env.S3_SECRET_KEY ?? "",
   localStoragePath: process.env.LOCAL_STORAGE_PATH ?? "./storage",
+  
+  // Encryption Configuration
+  encryptionKey: process.env.ENCRYPTION_KEY ?? "default-encryption-key-change-in-production",
 };
