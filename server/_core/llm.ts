@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import Anthropic from "@anthropic-ai/sdk";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -103,16 +104,20 @@ export type JsonSchema = {
   strict?: boolean;
 };
 
-export type OutputSchema = JsonSchema;
+export type OutputSchema = {
+  name: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
+};
 
 export type ResponseFormat =
   | { type: "text" }
   | { type: "json_object" }
   | { type: "json_schema"; json_schema: JsonSchema };
 
-const ensureArray = (
-  value: MessageContent | MessageContent[]
-): MessageContent[] => (Array.isArray(value) ? value : [value]);
+const ensureArray = <T>(value: T | T[]): T[] => {
+  return Array.isArray(value) ? value : [value];
+};
 
 const normalizeContentPart = (
   part: MessageContent
@@ -199,17 +204,17 @@ const normalizeToolChoice = (
     };
   }
 
-  if ("name" in toolChoice) {
+  if (typeof toolChoice === "object" && "name" in toolChoice) {
     return {
       type: "function",
       function: { name: toolChoice.name },
     };
   }
 
-  return toolChoice;
+  return toolChoice as ToolChoiceExplicit;
 };
 
-const resolveApiUrl = () => {
+const getEndpoint = () => {
   switch (ENV.llmProvider) {
     case "openai":
       return `${ENV.openaiBaseUrl}/chat/completions`;
@@ -217,11 +222,18 @@ const resolveApiUrl = () => {
     case "ollama":
       return `${ENV.ollamaBaseUrl}/chat/completions`;
     
+    case "deepseek":
+      return `${ENV.deepseekBaseUrl}/chat/completions`;
+    
     case "custom":
       if (!ENV.customLlmBaseUrl) {
         throw new Error("CUSTOM_LLM_BASE_URL is required when using custom provider");
       }
       return `${ENV.customLlmBaseUrl}/chat/completions`;
+    
+    case "claude":
+      // Claude uses SDK, not REST endpoint
+      return "";
     
     case "forge":
     default:
@@ -237,6 +249,18 @@ const assertApiKey = () => {
     case "openai":
       if (!ENV.openaiApiKey) {
         throw new Error("OPENAI_API_KEY is not configured");
+      }
+      break;
+    
+    case "claude":
+      if (!ENV.claudeApiKey) {
+        throw new Error("CLAUDE_API_KEY is not configured");
+      }
+      break;
+    
+    case "deepseek":
+      if (!ENV.deepseekApiKey) {
+        throw new Error("DEEPSEEK_API_KEY is not configured");
       }
       break;
     
@@ -262,6 +286,10 @@ const getApiKey = () => {
   switch (ENV.llmProvider) {
     case "openai":
       return ENV.openaiApiKey;
+    case "claude":
+      return ENV.claudeApiKey;
+    case "deepseek":
+      return ENV.deepseekApiKey;
     case "ollama":
       return ""; // Ollama doesn't require API key
     case "custom":
@@ -276,6 +304,10 @@ const getModel = () => {
   switch (ENV.llmProvider) {
     case "openai":
       return ENV.openaiModel;
+    case "claude":
+      return ENV.claudeModel;
+    case "deepseek":
+      return ENV.deepseekModel;
     case "ollama":
       return ENV.ollamaModel;
     case "custom":
@@ -331,9 +363,104 @@ const normalizeResponseFormat = ({
   };
 };
 
+// Convert OpenAI format messages to Claude format
+const convertToClaudeMessages = (messages: Message[]): { role: string; content: string }[] => {
+  const claudeMessages: { role: string; content: string }[] = [];
+  let systemMessage = "";
+
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      // Claude handles system messages separately
+      const content = typeof msg.content === "string" 
+        ? msg.content 
+        : ensureArray(msg.content)
+            .map(c => typeof c === "string" ? c : c.type === "text" ? c.text : "")
+            .join("\n");
+      systemMessage += (systemMessage ? "\n\n" : "") + content;
+    } else {
+      const content = typeof msg.content === "string"
+        ? msg.content
+        : ensureArray(msg.content)
+            .map(c => typeof c === "string" ? c : c.type === "text" ? c.text : "")
+            .join("\n");
+      
+      claudeMessages.push({
+        role: msg.role === "assistant" ? "assistant" : "user",
+        content,
+      });
+    }
+  }
+
+  return claudeMessages;
+};
+
+// Invoke Claude using Anthropic SDK
+async function invokeClaudeLLM(params: InvokeParams): Promise<InvokeResult> {
+  const anthropic = new Anthropic({
+    apiKey: ENV.claudeApiKey,
+  });
+
+  const { messages, maxTokens, max_tokens } = params;
+  
+  // Extract system message
+  let systemMessage = "";
+  const claudeMessages = convertToClaudeMessages(messages);
+
+  // Find system message
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      const content = typeof msg.content === "string"
+        ? msg.content
+        : ensureArray(msg.content)
+            .map(c => typeof c === "string" ? c : c.type === "text" ? c.text : "")
+            .join("\n");
+      systemMessage += (systemMessage ? "\n\n" : "") + content;
+    }
+  }
+
+  const response = await anthropic.messages.create({
+    model: getModel(),
+    max_tokens: maxTokens || max_tokens || 4096,
+    system: systemMessage || undefined,
+    messages: claudeMessages.filter(m => m.role !== "system"),
+  });
+
+  // Convert Claude response to OpenAI format
+  const content = response.content
+    .map(block => block.type === "text" ? block.text : "")
+    .join("\n");
+
+  return {
+    id: response.id,
+    created: Date.now(),
+    model: response.model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content,
+        },
+        finish_reason: response.stop_reason || "stop",
+      },
+    ],
+    usage: {
+      prompt_tokens: response.usage.input_tokens,
+      completion_tokens: response.usage.output_tokens,
+      total_tokens: response.usage.input_tokens + response.usage.output_tokens,
+    },
+  };
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
+  // Use Claude SDK if provider is claude
+  if (ENV.llmProvider === "claude") {
+    return invokeClaudeLLM(params);
+  }
+
+  // For all other providers, use OpenAI-compatible REST API
   const {
     messages,
     tools,
@@ -345,39 +472,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
-  const payload: Record<string, unknown> = {
-    model: model ?? getModel(),
-    messages: normalizedMessages,
-  };
-
-  if (tools && tools.length > 0) {
-    payload.tools = tools;
-  }
-
+  const normalizedMessages = messages.map(normalizeMessage);
   const normalizedToolChoice = normalizeToolChoice(
     toolChoice || tool_choice,
     tools
   );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
-
-  payload.max_tokens = params.maxTokens || params.max_tokens || 4096;
-  
-  // Only add thinking for Forge provider (Gemini models)
-  if (ENV.llmProvider === "forge") {
-    payload.thinking = {
-      "budget_tokens": 128
-    };
-  }
-  
-  // Ollama and some custom providers may need temperature adjustment
-  if (ENV.llmProvider === "ollama" || ENV.llmProvider === "custom") {
-    if (!payload.temperature) {
-      payload.temperature = 0.7;
-    }
-  }
-
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
     response_format,
@@ -385,15 +484,35 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     output_schema,
   });
 
+  const payload: Record<string, unknown> = {
+    model: getModel(),
+    messages: normalizedMessages,
+  };
+
+  if (tools && tools.length > 0) {
+    payload.tools = tools;
+  }
+
+  if (normalizedToolChoice) {
+    payload.tool_choice = normalizedToolChoice;
+  }
+
   if (normalizedResponseFormat) {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
+  if (params.maxTokens || params.max_tokens) {
+    payload.max_tokens = params.maxTokens || params.max_tokens;
+  }
+
+  const endpoint = getEndpoint();
+  const apiKey = getApiKey();
+
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${getApiKey()}`,
+      "Content-Type": "application/json",
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     },
     body: JSON.stringify(payload),
   });
@@ -401,9 +520,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+      `LLM API request failed (${response.status}): ${errorText}`
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  const result = await response.json();
+  return result as InvokeResult;
 }

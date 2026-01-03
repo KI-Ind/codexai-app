@@ -9,7 +9,7 @@ export const ENV = {
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   
   // LLM Configuration
-  // Supports: openai, forge, ollama, or custom (any OpenAI-compatible API)
+  // Supports: openai, claude, deepseek, forge, ollama, or custom (any OpenAI-compatible API)
   llmProvider: process.env.LLM_PROVIDER ?? "openai",
   
   // OpenAI Configuration
@@ -26,6 +26,16 @@ export const ENV = {
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434/v1",
   ollamaModel: process.env.OLLAMA_MODEL ?? "llama3",
   ollamaEmbeddingModel: process.env.OLLAMA_EMBEDDING_MODEL ?? "nomic-embed-text",
+  
+  // Claude (Anthropic) Configuration
+  claudeApiKey: process.env.CLAUDE_API_KEY ?? "",
+  claudeModel: process.env.CLAUDE_MODEL ?? "claude-3-5-sonnet-20241022",
+  claudeBaseUrl: process.env.CLAUDE_BASE_URL ?? "https://api.anthropic.com",
+  
+  // DeepSeek Configuration
+  deepseekApiKey: process.env.DEEPSEEK_API_KEY ?? "",
+  deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
+  deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
   
   // Custom OpenAI-compatible API Configuration
   customLlmBaseUrl: process.env.CUSTOM_LLM_BASE_URL ?? "",
